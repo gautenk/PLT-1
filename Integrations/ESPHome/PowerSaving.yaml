@@ -1,0 +1,40 @@
+globals:
+  - id: last_soil_moisture_sent
+    type: float
+    restore_value: true
+    initial_value: 'NAN'
+  - id: minutes_since_report
+    type: int
+    restore_value: true
+    initial_value: '0'
+  - id: should_report
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+
+number:
+  - platform: template
+    name: "Check Interval"
+    id: wake_check_interval_min
+    optimistic: true
+    restore_value: true
+    initial_value: 15
+    min_value: 1
+    max_value: 720
+    step: 1
+    unit_of_measurement: min
+    icon: "mdi:timer-outline"
+    entity_category: CONFIG
+
+  - platform: template
+    name: "Soil Moisture Report Threshold"
+    id: soil_moisture_delta
+    optimistic: true
+    restore_value: true
+    initial_value: 3
+    min_value: 0.5
+    max_value: 50
+    step: 0.5
+    unit_of_measurement: "%"
+    icon: "mdi:water-percent"
+    entity_category: CONFIG
