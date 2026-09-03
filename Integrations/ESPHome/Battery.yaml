@@ -4,8 +4,47 @@ external_components:
 
 deep_sleep:
   id: deep_sleep_1
-  sleep_duration: 12h
+  sleep_duration: 15min   # kun brukt på aller første boot (on_wake har ikke kjørt ennå)
   run_duration: 90s
+  on_wake:
+    then:
+      - lambda: |-
+          // Rask sjekk FØR wifi kobles opp. Kun soil_adc/soil_moisture er garantert
+          // klare umiddelbart - aht_20 er satt til LATE prioritet i Core.yaml (trolig
+          // fordi accessory_power kutter strømmen til den hver søvnsyklus og den
+          // trenger tid til å stabilisere seg), og soil_temperature (DS18B20) bruker
+          // ~750ms på en konvertering. Begge holdes derfor utenfor denne tidlige
+          // sjekken og rapporteres som normalt via reportAllValues når en tilkobling
+          // uansett skjer (utløst av fuktighet eller maks-intervallet under).
+          id(soil_adc).update();
+          id(soil_moisture).update();
+
+          id(minutes_since_report) += (int) id(wake_check_interval_min).state;
+
+          float moisture = id(soil_moisture).state;
+          bool moisture_changed = std::isnan(id(last_soil_moisture_sent)) ||
+              fabs(moisture - id(last_soil_moisture_sent)) > id(soil_moisture_delta).state;
+          bool max_interval_elapsed = id(minutes_since_report) >= (id(deep_sleep_sleep_duration).state * 60.0f);
+
+          id(should_report) = moisture_changed || max_interval_elapsed;
+
+          // Sett søvnlengden til sjekk-intervallet uansett utfall - dette er
+          // hvor lenge den skal sove til NESTE sjekk, ikke til neste rapport.
+          id(deep_sleep_1).set_sleep_duration((uint32_t)(id(wake_check_interval_min).state * 60000));
+
+          if (id(should_report)) {
+            id(last_soil_moisture_sent) = moisture;
+            id(minutes_since_report) = 0;
+          }
+      - if:
+          condition:
+            and:
+              - lambda: 'return !id(should_report);'
+              - binary_sensor.is_off: ota_mode
+              - switch.is_off: prevent_sleep
+          then:
+            - deep_sleep.enter:
+                id: deep_sleep_1
 
 sensor:
   - platform: max17048
@@ -29,10 +68,10 @@ switch:
     restore_mode: ALWAYS_ON
     setup_priority: 5000
     entity_category: CONFIG
+
 number:
-  
   - platform: template
-    name: "Sleep Duration"
+    name: "Max Time Between Reports"
     id: deep_sleep_sleep_duration
     min_value: 0
     max_value: 800
@@ -45,10 +84,9 @@ number:
     icon: "mdi:arrow-collapse-right"
     entity_category: CONFIG
     unit_of_measurement: "h"
-    on_value:
-      then:
-        - lambda: |-
-            id(deep_sleep_1).set_sleep_duration(x * 60 * 60 * 1000);
+    # on_value -> set_sleep_duration fjernet: selve søvnlengden per syklus styres nå
+    # av wake_check_interval_min i on_wake (PowerSaving.yaml), ikke direkte av denne.
+    # Denne verdien er nå "maks tid mellom hver faktiske rapport", lest av on_wake.
 
 script:
   - id: reportAllValues
