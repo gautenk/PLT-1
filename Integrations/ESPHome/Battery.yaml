@@ -29,7 +29,9 @@ esphome:
             // ~750ms på en konvertering. Begge holdes derfor utenfor denne tidlige
             // sjekken og rapporteres som normalt via reportAllValues når en tilkobling
             // uansett skjer (utløst av fuktighet eller maks-intervallet under).
-            id(soil_adc).update();
+            id(soil_adc).update();  // "oppvarmingslesning" rett etter accessory_power slo på - forkastes
+            delay(50);              // la sensorkretsen stabilisere seg
+            id(soil_adc).update();  // faktisk lesning som brukes under
             id(soil_moisture).update();
 
             id(minutes_since_report) += (int) id(wake_check_interval_min).state;
