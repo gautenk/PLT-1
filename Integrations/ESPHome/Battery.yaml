@@ -30,7 +30,7 @@ esphome:
             // sjekken og rapporteres som normalt via reportAllValues når en tilkobling
             // uansett skjer (utløst av fuktighet eller maks-intervallet under).
             id(soil_adc).update();  // "oppvarmingslesning" rett etter accessory_power slo på - forkastes
-            delay(50);              // la sensorkretsen stabilisere seg
+            delay(120);             // la sensorkretsen stabilisere seg
             id(soil_adc).update();  // faktisk lesning som brukes under
             id(soil_moisture).update();
 
