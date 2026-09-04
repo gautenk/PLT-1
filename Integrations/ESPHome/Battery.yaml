@@ -11,52 +11,60 @@ esphome:
   on_boot:
     - priority: 200   # rett ETTER wifi sin egen setup (250) - garanterer wifi-komponenten
       # er initialisert (men IKKE koblet til, siden enable_on_boot: false står i hovedfila)
-      # før vi eventuelt kaller wifi.enable selv. Kjøres på alle boot, ikke bare wake-from-sleep,
-      # i motsetning til deep_sleep sin on_wake (som viste seg å kjøre for tidlig/usikkert
-      # relativt til wifi - bekreftet i logg).
+      # før vi eventuelt kaller wifi.enable selv. Kjøres på alle boot, ikke bare wake-from-sleep.
       then:
         - lambda: |-
-            // Isolerende test: en enkel teller uavhengig av all annen logikk. Hvis denne
-            // IKKE øker for hver oppvåkning, persisterer restore_value ikke i det hele
-            // tatt på denne enheten - da må vi lagre annerledes (rå NVS-kall), uavhengig
-            // av fuktighetslogikken.
             id(debug_wake_counter) += 1;
 
-            // Rask sjekk FØR wifi kobles opp. Kun soil_adc/soil_moisture er garantert
-            // klare umiddelbart - aht_20 er satt til LATE prioritet i Core.yaml (trolig
-            // fordi accessory_power kutter strømmen til den hver søvnsyklus og den
-            // trenger tid til å stabilisere seg), og soil_temperature (DS18B20) bruker
-            // ~750ms på en konvertering. Begge holdes derfor utenfor denne tidlige
-            // sjekken og rapporteres som normalt via reportAllValues når en tilkobling
-            // uansett skjer (utløst av fuktighet eller maks-intervallet under).
-            id(soil_adc).update();  // "oppvarmingslesning" rett etter accessory_power slo på - forkastes
-            delay(120);             // la sensorkretsen stabilisere seg
+            // Rask sjekk FØR wifi kobles opp. soil_adc trenger en kort oppvarmingslesning
+            // (kapasitiv sensor, RC-innsvingning etter at accessory_power slo på strøm -
+            // målt τ≈34ms, 100ms ≈ 3τ). max_17048 er en alltid-på fuel-gauge-brikke med
+            // kontinuerlig intern tilstand og trenger ingen tilsvarende ventetid.
+            // aht_20 (LATE prioritet) og soil_temperature (DS18B20, ~750ms konvertering)
+            // holdes fortsatt utenfor - rapporteres som normalt når en tilkobling skjer.
+            id(soil_adc).update();  // oppvarmingslesning - forkastes
+            delay(120);
             id(soil_adc).update();  // faktisk lesning som brukes under
             id(soil_moisture).update();
+            id(max_17048).update();
 
             id(minutes_since_report) += (int) id(wake_check_interval_min).state;
 
+            // Terskel = 0 betyr "deaktivert" - IKKE "trigger på enhver endring". Må derfor
+            // eksplisitt sjekkes FØR delta-sammenligningen, ellers ville 0 vært den strengeste
+            // (ikke slappeste) terskelen mulig.
             float moisture = id(soil_moisture).state;
-            float last_sent = id(last_soil_moisture_sent);  // fanget FØR evt. overskrevet under
+            float last_moisture = id(last_soil_moisture_sent);
+            float moisture_threshold = id(soil_moisture_delta).state;
+            bool moisture_changed = (moisture_threshold > 0) &&
+                (std::isnan(last_moisture) || fabs(moisture - last_moisture) > moisture_threshold);
 
-            bool moisture_changed = std::isnan(last_sent) ||
-                fabs(moisture - last_sent) > id(soil_moisture_delta).state;
+            float battery = id(batt_pct).state;
+            float last_battery = id(last_battery_level_sent);
+            float battery_threshold = id(battery_level_delta).state;
+            bool battery_changed = (battery_threshold > 0) &&
+                (std::isnan(last_battery) || fabs(battery - last_battery) > battery_threshold);
+
             bool max_interval_elapsed = id(minutes_since_report) >= (id(deep_sleep_sleep_duration).state * 60.0f);
 
-            id(should_report) = moisture_changed || max_interval_elapsed;
+            // Hvis begge terskler er 0: verken fuktighet eller batteri kan noensinne trigge -
+            // eneste vei til en rapport er da max_interval_elapsed, akkurat som spesifisert.
+            id(should_report) = moisture_changed || battery_changed || max_interval_elapsed;
 
             ESP_LOGW("PowerSaving",
-                "wake=%d prev=%s moisture=%.2f delta_threshold=%.2f changed=%d min_since_report=%d max_min=%.0f interval_elapsed=%d should_report=%d",
+                "wake=%d moist=%.1f(prev=%s,thr=%.1f,chg=%d) batt=%.1f(prev=%s,thr=%.1f,chg=%d) min=%d iv=%d rep=%d",
                 id(debug_wake_counter),
-                std::isnan(last_sent) ? "nan" : std::to_string(last_sent).c_str(),
-                moisture, id(soil_moisture_delta).state, moisture_changed,
-                id(minutes_since_report), id(deep_sleep_sleep_duration).state * 60.0f,
-                max_interval_elapsed, id(should_report));
+                moisture, std::isnan(last_moisture) ? "nan" : std::to_string(last_moisture).c_str(),
+                moisture_threshold, moisture_changed,
+                battery, std::isnan(last_battery) ? "nan" : std::to_string(last_battery).c_str(),
+                battery_threshold, battery_changed,
+                id(minutes_since_report), max_interval_elapsed, id(should_report));
 
-            // MIDLERTIDIG DIAGNOSTIKK - fanges i globals her, publiseres som "Debug Power
-            // Saving" i HA via reportAllValues når rapporten uansett sendes. Fjern når løst.
-            id(debug_prev_moisture) = last_sent;
+            // MIDLERTIDIG DIAGNOSTIKK - publiseres som "Debug Power Saving" i HA via
+            // reportAllValues når rapporten uansett sendes.
+            id(debug_prev_moisture) = last_moisture;
             id(debug_moisture_changed) = moisture_changed;
+            id(debug_battery_changed) = battery_changed;
             id(debug_interval_elapsed) = max_interval_elapsed;
 
             // Sett søvnlengden til sjekk-intervallet uansett utfall - dette er
@@ -65,6 +73,7 @@ esphome:
 
             if (id(should_report)) {
               id(last_soil_moisture_sent) = moisture;
+              id(last_battery_level_sent) = battery;
               id(minutes_since_report) = 0;
             }
         - if:
