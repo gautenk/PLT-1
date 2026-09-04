@@ -3,6 +3,10 @@ globals:
     type: float
     restore_value: true
     initial_value: 'NAN'
+  - id: last_battery_level_sent
+    type: float
+    restore_value: true
+    initial_value: 'NAN'
   - id: minutes_since_report
     type: int
     restore_value: true
@@ -16,6 +20,10 @@ globals:
     restore_value: false
     initial_value: 'NAN'
   - id: debug_moisture_changed
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: debug_battery_changed
     type: bool
     restore_value: false
     initial_value: 'false'
@@ -48,11 +56,24 @@ number:
     optimistic: true
     restore_value: true
     initial_value: 3
-    min_value: 0.5
+    min_value: 0
     max_value: 10
     step: 0.5
     unit_of_measurement: "%"
     icon: "mdi:water-percent"
+    entity_category: CONFIG
+
+  - platform: template
+    name: "Battery Level Report Threshold"
+    id: battery_level_delta
+    optimistic: true
+    restore_value: true
+    initial_value: 0
+    min_value: 0
+    max_value: 15
+    step: 1
+    unit_of_measurement: "%"
+    icon: "mdi:battery-alert-variant"
     entity_category: CONFIG
 
 text_sensor:
@@ -68,8 +89,9 @@ text_sensor:
       } else {
         snprintf(prev_str, sizeof(prev_str), "%.1f", id(debug_prev_moisture));
       }
-      char buf[96];
-      snprintf(buf, sizeof(buf), "wake=%d prev=%s changed=%d interval=%d now=%.1f",
-               id(debug_wake_counter), prev_str, id(debug_moisture_changed) ? 1 : 0,
+      char buf[140];
+      snprintf(buf, sizeof(buf), "moist prev=%s chg=%d | batt now=%.0f%% chg=%d | interval=%d now=%.1f",
+               prev_str, id(debug_moisture_changed) ? 1 : 0,
+               id(batt_pct).state, id(debug_battery_changed) ? 1 : 0,
                id(debug_interval_elapsed) ? 1 : 0, id(soil_moisture).state);
       return std::string(buf);
