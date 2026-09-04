@@ -11,6 +11,18 @@ globals:
     type: bool
     restore_value: false
     initial_value: 'false'
+  - id: debug_prev_moisture
+    type: float
+    restore_value: false
+    initial_value: 'NAN'
+  - id: debug_moisture_changed
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: debug_interval_elapsed
+    type: bool
+    restore_value: false
+    initial_value: 'false'
 
 number:
   - platform: template
@@ -38,3 +50,22 @@ number:
     unit_of_measurement: "%"
     icon: "mdi:water-percent"
     entity_category: CONFIG
+
+text_sensor:
+  - platform: template
+    name: "Debug Power Saving"
+    id: debug_power_saving
+    update_interval: never
+    entity_category: diagnostic
+    lambda: |-
+      char prev_str[16];
+      if (std::isnan(id(debug_prev_moisture))) {
+        snprintf(prev_str, sizeof(prev_str), "nan");
+      } else {
+        snprintf(prev_str, sizeof(prev_str), "%.1f", id(debug_prev_moisture));
+      }
+      char buf[80];
+      snprintf(buf, sizeof(buf), "prev=%s changed=%d interval=%d now=%.1f",
+               prev_str, id(debug_moisture_changed) ? 1 : 0, id(debug_interval_elapsed) ? 1 : 0,
+               id(soil_moisture).state);
+      return std::string(buf);
