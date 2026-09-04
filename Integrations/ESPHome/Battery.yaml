@@ -16,6 +16,12 @@ deep_sleep:
           // ~750ms på en konvertering. Begge holdes derfor utenfor denne tidlige
           // sjekken og rapporteres som normalt via reportAllValues når en tilkobling
           // uansett skjer (utløst av fuktighet eller maks-intervallet under).
+          // Isolerende test: en enkel teller uavhengig av all annen logikk. Hvis denne
+          // IKKE øker for hver oppvåkning, persisterer restore_value ikke i det hele
+          // tatt på denne enheten - da må vi lagre annerledes (rå NVS-kall), uavhengig
+          // av fuktighetslogikken.
+          id(debug_wake_counter) += 1;
+
           id(soil_adc).update();
           id(soil_moisture).update();
 
@@ -29,6 +35,14 @@ deep_sleep:
           bool max_interval_elapsed = id(minutes_since_report) >= (id(deep_sleep_sleep_duration).state * 60.0f);
 
           id(should_report) = moisture_changed || max_interval_elapsed;
+
+          ESP_LOGW("PowerSaving",
+              "wake=%d prev=%s moisture=%.2f delta_threshold=%.2f changed=%d min_since_report=%d max_min=%.0f interval_elapsed=%d should_report=%d",
+              id(debug_wake_counter),
+              std::isnan(last_sent) ? "nan" : std::to_string(last_sent).c_str(),
+              moisture, id(soil_moisture_delta).state, moisture_changed,
+              id(minutes_since_report), id(deep_sleep_sleep_duration).state * 60.0f,
+              max_interval_elapsed, id(should_report));
 
           // MIDLERTIDIG DIAGNOSTIKK - fanges i globals her (trygt, ingen oppstartsrekkefølge
           // å bekymre seg for), og publiseres som "Debug Power Saving" i HA via
