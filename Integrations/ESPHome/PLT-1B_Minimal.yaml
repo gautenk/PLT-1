@@ -62,5 +62,5 @@ logger:
 
 packages:
   core: !include Core.yaml
-  battery: !include Battery.yaml
   powersaving: !include PowerSaving.yaml
+  battery: !include Battery.yaml
