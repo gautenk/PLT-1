@@ -23,6 +23,10 @@ globals:
     type: bool
     restore_value: false
     initial_value: 'false'
+  - id: debug_wake_counter
+    type: int
+    restore_value: true
+    initial_value: '0'
 
 number:
   - platform: template
@@ -64,8 +68,8 @@ text_sensor:
       } else {
         snprintf(prev_str, sizeof(prev_str), "%.1f", id(debug_prev_moisture));
       }
-      char buf[80];
-      snprintf(buf, sizeof(buf), "prev=%s changed=%d interval=%d now=%.1f",
-               prev_str, id(debug_moisture_changed) ? 1 : 0, id(debug_interval_elapsed) ? 1 : 0,
-               id(soil_moisture).state);
+      char buf[96];
+      snprintf(buf, sizeof(buf), "wake=%d prev=%s changed=%d interval=%d now=%.1f",
+               id(debug_wake_counter), prev_str, id(debug_moisture_changed) ? 1 : 0,
+               id(debug_interval_elapsed) ? 1 : 0, id(soil_moisture).state);
       return std::string(buf);
