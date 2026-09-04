@@ -4,70 +4,78 @@ external_components:
 
 deep_sleep:
   id: deep_sleep_1
-  sleep_duration: 15min   # kun brukt på aller første boot (on_wake har ikke kjørt ennå)
+  sleep_duration: 15min   # kun brukt på aller første boot før noe annet har satt den
   run_duration: 90s
-  on_wake:
-    then:
-      - lambda: |-
-          // Rask sjekk FØR wifi kobles opp. Kun soil_adc/soil_moisture er garantert
-          // klare umiddelbart - aht_20 er satt til LATE prioritet i Core.yaml (trolig
-          // fordi accessory_power kutter strømmen til den hver søvnsyklus og den
-          // trenger tid til å stabilisere seg), og soil_temperature (DS18B20) bruker
-          // ~750ms på en konvertering. Begge holdes derfor utenfor denne tidlige
-          // sjekken og rapporteres som normalt via reportAllValues når en tilkobling
-          // uansett skjer (utløst av fuktighet eller maks-intervallet under).
-          // Isolerende test: en enkel teller uavhengig av all annen logikk. Hvis denne
-          // IKKE øker for hver oppvåkning, persisterer restore_value ikke i det hele
-          // tatt på denne enheten - da må vi lagre annerledes (rå NVS-kall), uavhengig
-          // av fuktighetslogikken.
-          id(debug_wake_counter) += 1;
 
-          id(soil_adc).update();
-          id(soil_moisture).update();
+esphome:
+  on_boot:
+    - priority: 200   # rett ETTER wifi sin egen setup (250) - garanterer wifi-komponenten
+      # er initialisert (men IKKE koblet til, siden enable_on_boot: false står i hovedfila)
+      # før vi eventuelt kaller wifi.enable selv. Kjøres på alle boot, ikke bare wake-from-sleep,
+      # i motsetning til deep_sleep sin on_wake (som viste seg å kjøre for tidlig/usikkert
+      # relativt til wifi - bekreftet i logg).
+      then:
+        - lambda: |-
+            // Isolerende test: en enkel teller uavhengig av all annen logikk. Hvis denne
+            // IKKE øker for hver oppvåkning, persisterer restore_value ikke i det hele
+            // tatt på denne enheten - da må vi lagre annerledes (rå NVS-kall), uavhengig
+            // av fuktighetslogikken.
+            id(debug_wake_counter) += 1;
 
-          id(minutes_since_report) += (int) id(wake_check_interval_min).state;
+            // Rask sjekk FØR wifi kobles opp. Kun soil_adc/soil_moisture er garantert
+            // klare umiddelbart - aht_20 er satt til LATE prioritet i Core.yaml (trolig
+            // fordi accessory_power kutter strømmen til den hver søvnsyklus og den
+            // trenger tid til å stabilisere seg), og soil_temperature (DS18B20) bruker
+            // ~750ms på en konvertering. Begge holdes derfor utenfor denne tidlige
+            // sjekken og rapporteres som normalt via reportAllValues når en tilkobling
+            // uansett skjer (utløst av fuktighet eller maks-intervallet under).
+            id(soil_adc).update();
+            id(soil_moisture).update();
 
-          float moisture = id(soil_moisture).state;
-          float last_sent = id(last_soil_moisture_sent);  // fanget FØR evt. overskrevet under
+            id(minutes_since_report) += (int) id(wake_check_interval_min).state;
 
-          bool moisture_changed = std::isnan(last_sent) ||
-              fabs(moisture - last_sent) > id(soil_moisture_delta).state;
-          bool max_interval_elapsed = id(minutes_since_report) >= (id(deep_sleep_sleep_duration).state * 60.0f);
+            float moisture = id(soil_moisture).state;
+            float last_sent = id(last_soil_moisture_sent);  // fanget FØR evt. overskrevet under
 
-          id(should_report) = moisture_changed || max_interval_elapsed;
+            bool moisture_changed = std::isnan(last_sent) ||
+                fabs(moisture - last_sent) > id(soil_moisture_delta).state;
+            bool max_interval_elapsed = id(minutes_since_report) >= (id(deep_sleep_sleep_duration).state * 60.0f);
 
-          ESP_LOGW("PowerSaving",
-              "wake=%d prev=%s moisture=%.2f delta_threshold=%.2f changed=%d min_since_report=%d max_min=%.0f interval_elapsed=%d should_report=%d",
-              id(debug_wake_counter),
-              std::isnan(last_sent) ? "nan" : std::to_string(last_sent).c_str(),
-              moisture, id(soil_moisture_delta).state, moisture_changed,
-              id(minutes_since_report), id(deep_sleep_sleep_duration).state * 60.0f,
-              max_interval_elapsed, id(should_report));
+            id(should_report) = moisture_changed || max_interval_elapsed;
 
-          // MIDLERTIDIG DIAGNOSTIKK - fanges i globals her (trygt, ingen oppstartsrekkefølge
-          // å bekymre seg for), og publiseres som "Debug Power Saving" i HA via
-          // reportAllValues når rapporten uansett sendes. Fjern begge når løst.
-          id(debug_prev_moisture) = last_sent;
-          id(debug_moisture_changed) = moisture_changed;
-          id(debug_interval_elapsed) = max_interval_elapsed;
+            ESP_LOGW("PowerSaving",
+                "wake=%d prev=%s moisture=%.2f delta_threshold=%.2f changed=%d min_since_report=%d max_min=%.0f interval_elapsed=%d should_report=%d",
+                id(debug_wake_counter),
+                std::isnan(last_sent) ? "nan" : std::to_string(last_sent).c_str(),
+                moisture, id(soil_moisture_delta).state, moisture_changed,
+                id(minutes_since_report), id(deep_sleep_sleep_duration).state * 60.0f,
+                max_interval_elapsed, id(should_report));
 
-          // Sett søvnlengden til sjekk-intervallet uansett utfall - dette er
-          // hvor lenge den skal sove til NESTE sjekk, ikke til neste rapport.
-          id(deep_sleep_1).set_sleep_duration((uint32_t)(id(wake_check_interval_min).state * 60000));
+            // MIDLERTIDIG DIAGNOSTIKK - fanges i globals her, publiseres som "Debug Power
+            // Saving" i HA via reportAllValues når rapporten uansett sendes. Fjern når løst.
+            id(debug_prev_moisture) = last_sent;
+            id(debug_moisture_changed) = moisture_changed;
+            id(debug_interval_elapsed) = max_interval_elapsed;
 
-          if (id(should_report)) {
-            id(last_soil_moisture_sent) = moisture;
-            id(minutes_since_report) = 0;
-          }
-      - if:
-          condition:
-            and:
-              - lambda: 'return !id(should_report);'
-              - binary_sensor.is_off: ota_mode
-              - switch.is_off: prevent_sleep
-          then:
-            - deep_sleep.enter:
-                id: deep_sleep_1
+            // Sett søvnlengden til sjekk-intervallet uansett utfall - dette er
+            // hvor lenge den skal sove til NESTE sjekk, ikke til neste rapport.
+            id(deep_sleep_1).set_sleep_duration((uint32_t)(id(wake_check_interval_min).state * 60000));
+
+            if (id(should_report)) {
+              id(last_soil_moisture_sent) = moisture;
+              id(minutes_since_report) = 0;
+            }
+        - if:
+            condition:
+              and:
+                - lambda: 'return !id(should_report);'
+                - binary_sensor.is_off: ota_mode
+                - switch.is_off: prevent_sleep
+            then:
+              - deep_sleep.enter:
+                  id: deep_sleep_1
+            else:
+              - wifi.enable
 
 sensor:
   - platform: max17048
@@ -108,8 +116,8 @@ number:
     entity_category: CONFIG
     unit_of_measurement: "h"
     # on_value -> set_sleep_duration fjernet: selve søvnlengden per syklus styres nå
-    # av wake_check_interval_min i on_wake (PowerSaving.yaml), ikke direkte av denne.
-    # Denne verdien er nå "maks tid mellom hver faktiske rapport", lest av on_wake.
+    # av wake_check_interval_min i on_boot (PowerSaving.yaml), ikke direkte av denne.
+    # Denne verdien er nå "maks tid mellom hver faktiske rapport".
 
 script:
   - id: reportAllValues
