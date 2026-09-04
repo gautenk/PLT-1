@@ -22,11 +22,20 @@ deep_sleep:
           id(minutes_since_report) += (int) id(wake_check_interval_min).state;
 
           float moisture = id(soil_moisture).state;
-          bool moisture_changed = std::isnan(id(last_soil_moisture_sent)) ||
-              fabs(moisture - id(last_soil_moisture_sent)) > id(soil_moisture_delta).state;
+          float last_sent = id(last_soil_moisture_sent);  // fanget FØR evt. overskrevet under
+
+          bool moisture_changed = std::isnan(last_sent) ||
+              fabs(moisture - last_sent) > id(soil_moisture_delta).state;
           bool max_interval_elapsed = id(minutes_since_report) >= (id(deep_sleep_sleep_duration).state * 60.0f);
 
           id(should_report) = moisture_changed || max_interval_elapsed;
+
+          // MIDLERTIDIG DIAGNOSTIKK - fanges i globals her (trygt, ingen oppstartsrekkefølge
+          // å bekymre seg for), og publiseres som "Debug Power Saving" i HA via
+          // reportAllValues når rapporten uansett sendes. Fjern begge når løst.
+          id(debug_prev_moisture) = last_sent;
+          id(debug_moisture_changed) = moisture_changed;
+          id(debug_interval_elapsed) = max_interval_elapsed;
 
           // Sett søvnlengden til sjekk-intervallet uansett utfall - dette er
           // hvor lenge den skal sove til NESTE sjekk, ikke til neste rapport.
@@ -100,3 +109,4 @@ script:
       - component.update: sys_uptime
       - component.update: soil_adc
       - component.update: max_17048
+      - component.update: debug_power_saving
