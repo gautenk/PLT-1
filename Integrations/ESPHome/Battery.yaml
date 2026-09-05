@@ -14,16 +14,14 @@ esphome:
       # før vi eventuelt kaller wifi.enable selv. Kjøres på alle boot, ikke bare wake-from-sleep.
       then:
         - lambda: |-
-            id(debug_wake_counter) += 1;
-
             // Rask sjekk FØR wifi kobles opp. soil_adc trenger en kort oppvarmingslesning
-            // (kapasitiv sensor, RC-innsvingning etter at accessory_power slo på strøm -
-            // målt τ≈34ms, 100ms ≈ 3τ). max_17048 er en alltid-på fuel-gauge-brikke med
-            // kontinuerlig intern tilstand og trenger ingen tilsvarende ventetid.
+            // (kapasitiv sensor, RC-innsvingning etter at accessory_power slo på strøm).
+            // max_17048 er en alltid-på fuel-gauge-brikke med kontinuerlig intern tilstand
+            // og trenger ingen tilsvarende ventetid.
             // aht_20 (LATE prioritet) og soil_temperature (DS18B20, ~750ms konvertering)
             // holdes fortsatt utenfor - rapporteres som normalt når en tilkobling skjer.
             id(soil_adc).update();  // oppvarmingslesning - forkastes
-            delay(120);
+            delay(100);
             id(soil_adc).update();  // faktisk lesning som brukes under
             id(soil_moisture).update();
             id(max_17048).update();
@@ -31,8 +29,7 @@ esphome:
             id(minutes_since_report) += (int) id(wake_check_interval_min).state;
 
             // Terskel = 0 betyr "deaktivert" - IKKE "trigger på enhver endring". Må derfor
-            // eksplisitt sjekkes FØR delta-sammenligningen, ellers ville 0 vært den strengeste
-            // (ikke slappeste) terskelen mulig.
+            // eksplisitt sjekkes FØR delta-sammenligningen.
             float moisture = id(soil_moisture).state;
             float last_moisture = id(last_soil_moisture_sent);
             float moisture_threshold = id(soil_moisture_delta).state;
@@ -47,25 +44,8 @@ esphome:
 
             bool max_interval_elapsed = id(minutes_since_report) >= (id(deep_sleep_sleep_duration).state * 60.0f);
 
-            // Hvis begge terskler er 0: verken fuktighet eller batteri kan noensinne trigge -
-            // eneste vei til en rapport er da max_interval_elapsed, akkurat som spesifisert.
+            // Hvis begge terskler er 0: eneste vei til en rapport er max_interval_elapsed.
             id(should_report) = moisture_changed || battery_changed || max_interval_elapsed;
-
-            ESP_LOGW("PowerSaving",
-                "wake=%d moist=%.1f(prev=%s,thr=%.1f,chg=%d) batt=%.1f(prev=%s,thr=%.1f,chg=%d) min=%d iv=%d rep=%d",
-                id(debug_wake_counter),
-                moisture, std::isnan(last_moisture) ? "nan" : std::to_string(last_moisture).c_str(),
-                moisture_threshold, moisture_changed,
-                battery, std::isnan(last_battery) ? "nan" : std::to_string(last_battery).c_str(),
-                battery_threshold, battery_changed,
-                id(minutes_since_report), max_interval_elapsed, id(should_report));
-
-            // MIDLERTIDIG DIAGNOSTIKK - publiseres som "Debug Power Saving" i HA via
-            // reportAllValues når rapporten uansett sendes.
-            id(debug_prev_moisture) = last_moisture;
-            id(debug_moisture_changed) = moisture_changed;
-            id(debug_battery_changed) = battery_changed;
-            id(debug_interval_elapsed) = max_interval_elapsed;
 
             // Sett søvnlengden til sjekk-intervallet uansett utfall - dette er
             // hvor lenge den skal sove til NESTE sjekk, ikke til neste rapport.
@@ -126,9 +106,6 @@ number:
     icon: "mdi:arrow-collapse-right"
     entity_category: CONFIG
     unit_of_measurement: "h"
-    # on_value -> set_sleep_duration fjernet: selve søvnlengden per syklus styres nå
-    # av wake_check_interval_min i on_boot (PowerSaving.yaml), ikke direkte av denne.
-    # Denne verdien er nå "maks tid mellom hver faktiske rapport".
 
 script:
   - id: reportAllValues
@@ -142,4 +119,3 @@ script:
       - component.update: sys_uptime
       - component.update: soil_adc
       - component.update: max_17048
-      - component.update: debug_power_saving
