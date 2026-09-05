@@ -15,26 +15,6 @@ globals:
     type: bool
     restore_value: false
     initial_value: 'false'
-  - id: debug_prev_moisture
-    type: float
-    restore_value: false
-    initial_value: 'NAN'
-  - id: debug_moisture_changed
-    type: bool
-    restore_value: false
-    initial_value: 'false'
-  - id: debug_battery_changed
-    type: bool
-    restore_value: false
-    initial_value: 'false'
-  - id: debug_interval_elapsed
-    type: bool
-    restore_value: false
-    initial_value: 'false'
-  - id: debug_wake_counter
-    type: int
-    restore_value: true
-    initial_value: '0'
 
 number:
   - platform: template
@@ -55,10 +35,10 @@ number:
     id: soil_moisture_delta
     optimistic: true
     restore_value: true
-    initial_value: 3
+    initial_value: 2
     min_value: 0
     max_value: 10
-    step: 0.5
+    step: 1
     unit_of_measurement: "%"
     icon: "mdi:water-percent"
     entity_category: CONFIG
@@ -75,23 +55,3 @@ number:
     unit_of_measurement: "%"
     icon: "mdi:battery-alert-variant"
     entity_category: CONFIG
-
-text_sensor:
-  - platform: template
-    name: "Debug Power Saving"
-    id: debug_power_saving
-    update_interval: never
-    entity_category: diagnostic
-    lambda: |-
-      char prev_str[16];
-      if (std::isnan(id(debug_prev_moisture))) {
-        snprintf(prev_str, sizeof(prev_str), "nan");
-      } else {
-        snprintf(prev_str, sizeof(prev_str), "%.1f", id(debug_prev_moisture));
-      }
-      char buf[140];
-      snprintf(buf, sizeof(buf), "moist prev=%s chg=%d | batt now=%.0f%% chg=%d | interval=%d now=%.1f",
-               prev_str, id(debug_moisture_changed) ? 1 : 0,
-               id(batt_pct).state, id(debug_battery_changed) ? 1 : 0,
-               id(debug_interval_elapsed) ? 1 : 0, id(soil_moisture).state);
-      return std::string(buf);
